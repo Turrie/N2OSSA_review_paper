@@ -12,3 +12,5 @@ Key Features
 ✅ Data on fertilizer rates, soil properties, and agro-ecological zones
 ✅ Spatial mapping of emission hotspots
 ✅ Analysis of emission factors and mitigation strategies
+
+Rstudio
