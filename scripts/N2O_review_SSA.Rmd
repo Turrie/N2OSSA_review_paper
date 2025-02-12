@@ -1,0 +1,307 @@
+---
+title: "N₂O Emissions in Sub-Saharan Africa"
+author: "Ouma Turry"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Introduction
+This document analyzes N₂O emissions from cropland soils in Sub-Saharan Africa using field measurement data.
+
+
+# Load Required Libraries
+```{r}
+library(ggplot2)
+library(zen4R)
+library(dplyr)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(leaflet)
+library(plotly)
+library(ggpubr)
+library(readxl)
+library(RCurl)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/Users/turryouma/FAIRLEAP/Workflow")
+data_fert <- readxl::read_excel("/Users/turryouma/FAIRLEAP/Workflow/data/fertemissions.xlsx")
+data_fert
+main_sum <- read.csv("/Users/turryouma/FAIRLEAP/Workflow/data/main_sum_delimit.csv")
+main_sum
+```
+
+# Load and Prepare Data
+```{r}
+# Load the world map shapefile
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Filter for Sub-Saharan Africa
+ssa <- world %>%
+  filter(continent == "Africa" & !name %in% c("Morocco", "Algeria", "Tunisia", "Libya", "Egypt"))
+
+# Read in data
+main_sum$mean <- as.numeric(main_sum$mean)
+
+# Categorize emissions
+main_sum <- main_sum %>%
+  mutate(
+    emission_range = cut(mean, 
+                         breaks = c(-Inf, 0.5, 1, 1.5, 2, 3, 4, Inf), 
+                         labels = c("< 0.5", "0.5–1", "1.1–1.5", "1.6–2", 
+                                    "2.1–3", "3.1-4", ">4.1"))
+  )
+```
+
+# Convert Data to Spatial Format
+```{r}
+data_sf <- st_as_sf(main_sum, coords = c("longitude", "latitude"), crs = 4326)
+```
+
+# Visualization: N₂O Emissions in SSA
+```{r}
+ssa_countries <- ssa %>%
+  mutate(Study_Availability = ifelse(name %in% unique(data$Country), "Yes", "None"))
+
+# Calculate centroids for labels
+ssa_centroids <- st_centroid(ssa_countries)
+ssa_centroids <- cbind(ssa_centroids, st_coordinates(ssa_centroids))
+
+# Filter fertilizer-induced emissions
+fertind_sf <- filter(data_sf, fertilizer_induced == "yes")
+
+ssa_sf <- ssa_countries %>%
+  left_join(df_clean %>% select(Country, fertilizer_induced, latitude, longitude), 
+            by = c("name" = "Country")) %>%
+  mutate(Study_Availability = ifelse(!is.na(fertilizer_induced), "Study", "No Study"))
+
+# Summarize emissions data by country
+country_summary <- fertind_sf %>%
+  group_by(Country, Location) %>%
+  summarize(
+    mean_emissions = mean(mean, na.rm = TRUE), # Average emissions
+    min_emissions = min(min, na.rm = TRUE),   # Minimum emissions
+    max_emissions = max(max, na.rm = TRUE),   # Maximum emissions
+    geometry = st_union(geometry) %>% st_centroid() # Country centroid for plotting
+  )
+```
+
+
+```{r}
+#############
+dist_map <- ggplot() +
+  # Layer 1: All SSA countries in grey
+  geom_sf(data = layer1_data, fill = "grey", color = "white") +
+  
+  # Layer 2: Countries where studies have been conducted (light blue)
+  geom_sf(data = layer2_data, fill = "#8BC34A", color = "white") +
+  
+  # Layer 3: Countries with fertilizer-induced emissions (green)
+  geom_sf(data = layer3_data %>% filter(fertilizer_induced == "yes"), fill = "#388E3C", color = "white") +
+  
+  # Layer 4: Emission points
+  geom_sf(data = country_summary, aes(color = mean_emissions, size = mean_emissions)) +
+  
+  scale_color_gradientn(
+    colors = c("yellow", "orange", "#d53e4f", "#3288bd","blue", "purple"), 
+    breaks = c(0, 1, 2, 3),  # Show only these values in the legend
+    limits = c(0, 3),  # Ensure the gradient range stops at 2.7
+    name = expression("Mean Emissions of " ~ N[2]*O ~ "(kg N"["2"]*"O-N/ha/year)")
+  ) +
+  
+  scale_size_continuous(
+    range = c(2, 8), 
+    guide = "none"  # Remove size legend
+  ) +
+  
+  # Layer 5: Country labels
+  geom_text(data = ssa_centroids, aes(X, Y, label = name), size = 3, color = "black") +
+  
+  # Title and caption
+  labs(title = expression("Studies on" ~ N[2]*O~ "Emissions in Sub-Saharan Africa"),
+       subtitle = "Layered visualization: SSA countries, studies conducted, fertilizer-induced emissions, and emission points",
+       caption = expression("Data Source: Peer reviewed SSA studies on" ~ N[2]*O~ "emissions from croplands")) +
+  
+  # Map theme
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 14),  
+    legend.text = element_text(size = 14),   
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    plot.caption = element_text(size = 12)
+  ) +
+  coord_sf(expand = FALSE)
+dist_map
+```
+
+# Save Plot
+```{r}
+ggsave("dist_map.png", plot = dist_map, width = 12, height = 8, dpi = 300)
+```
+
+```{r}
+
+# Rename columns for clarity 
+colnames(data_fert) <- c("Study", "Country", "Treatment", "Rate", "Emission", "Unit")
+
+# Convert `Rate` to a factor with a defined order (from Control to highest range)
+data_fert$Rate <- factor(data_fert$Rate, levels = c("Control", "<50", "51-100", "101-150", ">150"))
+
+# Calculate the mean emissions for each group
+means <- data_fert %>%
+  group_by(Rate) %>%
+  summarise(mean_emission = mean(Emission, na.rm = TRUE))
+
+# # Get a list of studies used in the analysis
+# study_list <- unique(data$Study)
+# study_caption <- paste("Studies included:", paste(study_list, collapse = ", "))
+# Get a list of studies used in the analysis
+study_list <- unique(data_fert$Study)
+
+# Define the number of studies per line
+studies_per_line <- 6
+
+# Split the study list into chunks
+study_caption_lines <- split(study_list, ceiling(seq_along(study_list) / studies_per_line))
+
+# Combine the chunks into separate lines
+study_caption <- paste("Studies included:", 
+                       paste(sapply(study_caption_lines, function(x) paste(x, collapse = ", ")), 
+                             collapse = "\n"))
+```
+
+
+```{r}
+#by country
+# Interaction plot
+emfert <- ggplot(data_fert, aes(x = Rate, y = Emission, color = Country, group = Country)) +
+  geom_boxplot(aes(fill = Country), alpha = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+  labs(
+    x = "Nitrogen fertilizer application rate (Kg/ha)",
+    y = expression("Emission (Kg"  ~ N[2]*O ~ "(kg N"["2"]*"O-N/ha/year)"),
+    title = expression("Interaction of Fertilizer Rate and Country on" ~ N[2]*O ~ "Emissions")
+  ) +
+  theme_minimal(base_size = 14)
+emfert
+```
+
+```{r}
+# Create the boxplot
+comp_means <- ggplot(data_fert, aes(x = Rate, y = Emission, fill = Rate)) +
+  geom_boxplot(outlier.shape = NA) +  # Boxplot without outliers
+  geom_jitter(aes(color = Rate), width = 0.2, size = 2, alpha = 0.8) +  # Add jittered points
+  scale_fill_brewer(palette = "Set2") +  # Set color palette for boxes
+  scale_color_brewer(palette = "Set2") +  # Set color palette for points
+  labs(
+    x = "Nitrogen fertilizer application rate (Kg/Ha)",
+    y = expression("Total " ~ N[2]*O ~ " emission (kg N"["2"]*"O-N/ha/year)"),
+    
+    caption = study_caption  # Add the studies as a caption
+  ) +
+  theme_minimal(base_size = 14) +  # Set minimal theme with larger font size
+  theme(
+    legend.position = "none",  # Remove legend
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    plot.caption = element_text(hjust = 0)  # Align caption to the left
+  ) +
+  # Add mean values on top of the boxplots
+  geom_text(
+    data = means,
+    aes(x = Rate, y = mean_emission + 0.5, label = round(mean_emission, 2)),
+    color = "black",
+    size = 4
+  ) +
+  # Optional: Add pairwise statistical comparisons
+  stat_compare_means(
+    method = "t.test",
+    comparisons = list(
+      c("Control", "<50"),
+      c("<50", "51-100"),
+      c("51-100", "101-150"),
+      c("101-150", ">150")
+    ),
+    label.y = c(6.5, 7, 7.5, 8),
+    size = 4
+  )
+
+comp_means
+```
+```{r}
+fert_country <-ggplot(data_fert, aes(x = Rate, y = Emission, fill = Rate)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = Rate), width = 0.2, size = 2, alpha = 0.8) +
+  labs(
+    x = "Nitrogen fertilizer application rate (Kg/ha)",
+    y = expression("Total " ~ N[2]*O ~ " emission (kg N"["2"]*"O-N/ha/year)"),
+    title = "" ~ N[2]*O ~ " Emissions by Fertilizer Rate for Each Country"
+  ) +
+  theme_minimal(base_size = 14) +
+  facet_wrap(~Country, scales = "free_y") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_color_brewer(palette = "Set2")
+fert_country
+```
+
+```{r}
+#linear fit
+# 1. Calculate regression statistics for each country
+stats <- data_fert %>%
+  group_by(Country) %>%
+  do({
+    fit <- lm(Emission ~ Treatment, data = .)
+    summary_fit <- summary(fit)
+    data.frame(
+      Country = .$Country[1],
+      intercept = coef(fit)[1],
+      slope = coef(fit)[2],
+      r_squared = summary_fit$r.squared,
+      p_value = coef(summary_fit)[2, 4]
+    )
+  })
+
+# 2. Merge regression statistics back into the dataset for annotation
+data_fert2 <- data_fert %>% filter(Country != "Madagascar")
+data_with_stats <- data_fert2 %>%
+  left_join(stats, by = "Country")
+# Fit linear models for each country and extract the required statistics
+country_stats <- data_with_stats %>%
+  group_by(Country) %>%
+  do({
+    fit <- lm(Emission ~ Treatment, data = .)
+    tibble(
+      Country = unique(.$Country),
+      r_squared = summary(fit)$r.squared,  # Use R² instead of adjusted R²
+      intercept = fit$coef[[1]],
+      p_value = summary(fit)$coef[2, 4],
+      x_pos = min(.$Treatment),  # Position label based on min Treatment (for left side)
+      y_pos = max(.$Emission)   # Position label based on max Emission (for top side)
+    )
+  })
+```
+
+```{r}
+scatter_emiss <- ggplot(data_with_stats, aes(x = Treatment, y = Emission)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", se = TRUE, fill="#69b3a2",color = "darkgreen") +
+  facet_wrap(~ Country, scales = "free") +  # Facet by country with free y-axis scales
+  geom_label(data = country_stats, 
+             aes(x = x_pos, y = y_pos, 
+                 label = paste("R² = ", signif(r_squared, 5),
+                               
+                               "\nP =", signif(p_value, 5))),
+             hjust = 0, vjust = 1, size = 3, alpha = 0.3)  # Position the label at top-left
+
+scatter_emiss
+```
+
+
+
+
+
+# Conclusion
+This analysis visualizes N₂O emissions data from Sub-Saharan Africa, highlighting areas where studies have been conducted and variations in emissions intensity.
