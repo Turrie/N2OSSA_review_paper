@@ -4,8 +4,8 @@ This repository contains datasets and analysis scripts related to a systematic r
 Contents
 Data/ – Raw and processed datasets on N₂O emissions
 Scripts/ – R scripts for data analysis, visualization, and spatial mapping
-Figures/ – Plots and maps generated from the analysis
-review_paper1.Rmd – R Markdown file summarizing key findings
+Outputs/ – Plots and maps generated from the analysis
+
 
 Key Features
 Compilation of peer-reviewed studies on N₂O emissions in SSA
