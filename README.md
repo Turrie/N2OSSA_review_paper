@@ -7,9 +7,9 @@ Contents:
 3. Outputs/ – Plots and maps generated from the analysis
 
 
-Key Features
-Compilation of peer-reviewed studies on N₂O emissions in SSA
-Data on fertilizer rates, soil properties, and agro-ecological zones
-Spatial mapping of emission hotspots
-Analysis of emission factors and mitigation strategies
+Key Features:
+1.Compilation of peer-reviewed studies on N₂O emissions in SSA
+2.Data on fertilizer rates, soil properties, and agro-ecological zones
+3.Spatial mapping of emission hotspots
+4.Analysis of emission factors and mitigation strategies
 
